@@ -1,0 +1,6 @@
+.goreleaser.yml
+.github/
+dist/
+docker-compose.yml
+README.md
+LICENSE

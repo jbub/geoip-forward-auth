@@ -1,0 +1,75 @@
+version: 2
+project_name: geoip-forward-auth
+release:
+  github:
+    owner: jbub
+    name: geoip-forward-auth
+builds:
+  - main: main.go
+    binary: geoip-forward-auth
+    ldflags: |
+      -s
+      -w
+      -X github.com/jbub/geoip-forward-auth/internal/version.Version={{ .Version }}
+      -X github.com/jbub/geoip-forward-auth/internal/version.Revision={{ .Commit }}
+      -X github.com/jbub/geoip-forward-auth/internal/version.BuildDate={{ .Date }}
+      -extldflags '-static'
+    flags: -tags netgo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm
+      - arm64
+      - 386
+archives:
+  - id: release
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .Binary }}_{{.Version}}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{.Arm }}{{ end }}"
+    files:
+      - LICENSE
+      - README.md
+snapshot:
+  version_template: "{{ .Commit }}"
+dockers:
+  - image_templates:
+      - "jbub/geoip-forward-auth:{{ .Tag }}"
+      - "jbub/geoip-forward-auth:latest"
+    dockerfile: .goreleaser/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "jbub/geoip-forward-auth:{{ .Tag }}-arm64"
+      - "jbub/geoip-forward-auth:latest-arm64"
+    dockerfile: .goreleaser/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/arm64"
+    goarch: arm64
+docker_manifests:
+  - name_template: 'jbub/geoip-forward-auth:{{ .Tag }}'
+    image_templates:
+      - 'jbub/geoip-forward-auth:{{ .Tag }}'
+      - 'jbub/geoip-forward-auth:{{ .Tag }}-arm64'

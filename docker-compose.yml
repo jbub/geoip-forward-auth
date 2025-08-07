@@ -1,0 +1,45 @@
+services:
+  traefik:
+    image: traefik:v3.5
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:8000"
+      - "--log.level=DEBUG"
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8000"
+      - "traefik.http.routers.traefik.entrypoints=web"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
+
+  whoami:
+    image: traefik/whoami
+    environment:
+      WHOAMI_PORT_NUMBER: "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.whoami.loadbalancer.server.port=80"
+      - "traefik.http.routers.whoami.entrypoints=web"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.localhost`)"
+      - "traefik.http.routers.whoami.middlewares=geoip-auth"
+      - "traefik.http.middlewares.geoip-auth.forwardauth.trustforwardheader=true"
+      - "traefik.http.middlewares.geoip-auth.forwardauth.address=http://geoip-forward-auth:8080/auth"
+    depends_on:
+      - traefik
+
+  geoip-forward-auth:
+    build:
+      context: .
+    restart: always
+    environment:
+      LISTEN_ADDR: ":8080"
+      COUNTRY_RESOLVER: "ip2location"
+      IP2LOCATION_DATABASE: "/IP2LOCATION-LITE-DB1.IPV6.BIN"
+    volumes:
+      - "./IP2LOCATION-LITE-DB1.IPV6.BIN:/IP2LOCATION-LITE-DB1.IPV6.BIN"
+    depends_on:
+      - traefik
