@@ -80,82 +80,89 @@ type Service struct {
 }
 
 func (s *Service) Allow(req *http.Request) bool {
-	addr, ok := s.getClientAddr(req)
-	if !ok {
-		s.log.LogAttrs(req.Context(), slog.LevelDebug, "no client address found in request")
+	host := s.getHostname(req)
+	if host == "" {
+		s.log.LogAttrs(req.Context(), slog.LevelDebug, "no hostname found in request")
 		return false
 	}
 
+	log := s.log.With(slog.String("host", host))
+
+	addr, ok := s.getClientAddr(req)
+	if !ok {
+		log.LogAttrs(req.Context(), slog.LevelDebug, "no client address found in request")
+		return false
+	}
+
+	log = log.With(slog.String("addr", addr.String()))
+
 	if allowed, cached := s.allowCache.Get(addr); cached {
-		s.log.LogAttrs(req.Context(), slog.LevelDebug, "cache hit", slog.Bool("allowed", allowed), slog.String("addr", addr.String()))
+		log.LogAttrs(req.Context(), slog.LevelDebug, "cache hit", slog.Bool("allowed", allowed))
 		return allowed
 	}
 
-	allowed := s.allow(req.Context(), addr)
+	allowed := s.allow(req.Context(), log, addr)
 	s.allowCache.Add(addr, allowed)
 	return allowed
 }
 
-func (s *Service) allow(ctx context.Context, addr netip.Addr) bool {
-	if s.addrWhitelisted(ctx, addr) {
+func (s *Service) allow(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
+	if s.addrWhitelisted(ctx, log, addr) {
 		return true
 	}
-	if s.allowPrivateAddr(ctx, addr) {
+	if s.allowPrivateAddr(ctx, log, addr) {
 		return true
 	}
-	return s.allowCountry(ctx, addr)
+	return s.allowCountry(ctx, log, addr)
 }
 
-func (s *Service) allowPrivateAddr(ctx context.Context, addr netip.Addr) bool {
+func (s *Service) allowPrivateAddr(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
 	if s.allowPrivate && addr.IsPrivate() {
-		s.log.LogAttrs(ctx, slog.LevelDebug, "private allowed", slog.String("addr", addr.String()))
+		log.LogAttrs(ctx, slog.LevelDebug, "private address allowed")
 		return true
 	}
 	return false
 }
 
-func (s *Service) addrWhitelisted(ctx context.Context, addr netip.Addr) bool {
+func (s *Service) addrWhitelisted(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
 	for _, prefix := range s.ipWhitelist {
 		if prefix.Contains(addr) {
-			s.log.LogAttrs(ctx, slog.LevelDebug, "prefix whitelisted",
-				slog.String("prefix", prefix.String()),
-				slog.String("addr", addr.String()),
-			)
+			log.LogAttrs(ctx, slog.LevelDebug, "address whitelisted by prefix", slog.String("prefix", prefix.String()))
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Service) allowCountry(ctx context.Context, addr netip.Addr) bool {
+func (s *Service) allowCountry(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
 	countryCode, err := s.resolver.ResolveCountryCode(addr)
 	if err != nil {
 		if errors.Is(err, geoiperr.ErrCountryCodeNotFound) {
-			s.log.LogAttrs(ctx, slog.LevelDebug, "country code not found", slog.String("addr", addr.String()))
+			log.LogAttrs(ctx, slog.LevelDebug, "country code not found")
 			return false
 		}
 
-		s.log.LogAttrs(ctx, slog.LevelError, "unable to resolve country code", slog.String("addr", addr.String()), slog.String("error", err.Error()))
+		log.LogAttrs(ctx, slog.LevelError, "unable to resolve country code", slog.String("error", err.Error()))
 		return false
 	}
 
 	countryCode = strings.ToLower(countryCode)
 
 	if s.countryWhitelisted(countryCode) {
-		s.logCountryDecision(ctx, countryCode, "whitelisted")
+		s.logCountryDecision(ctx, log, countryCode, "whitelisted")
 		return true
 	}
 	if s.countryBlacklisted(countryCode) {
-		s.logCountryDecision(ctx, countryCode, "blacklisted")
+		s.logCountryDecision(ctx, log, countryCode, "blacklisted")
 		return false
 	}
 
-	s.logCountryDecision(ctx, countryCode, "disallowed")
+	s.logCountryDecision(ctx, log, countryCode, "disallowed")
 	return false
 }
 
-func (s *Service) logCountryDecision(ctx context.Context, countryCode, decision string) {
-	s.log.LogAttrs(ctx, slog.LevelInfo, "country decision", slog.String("country", countryCode), slog.String("decision", decision))
+func (s *Service) logCountryDecision(ctx context.Context, log *slog.Logger, countryCode, decision string) {
+	log.LogAttrs(ctx, slog.LevelInfo, "country decision", slog.String("country", countryCode), slog.String("decision", decision))
 }
 
 func (s *Service) countryWhitelisted(countryCode string) bool {
@@ -166,6 +173,10 @@ func (s *Service) countryWhitelisted(countryCode string) bool {
 func (s *Service) countryBlacklisted(countryCode string) bool {
 	_, exists := s.countryBlacklist[countryCode]
 	return exists
+}
+
+func (s *Service) getHostname(req *http.Request) string {
+	return req.Header.Get("X-Forwarded-Host")
 }
 
 func (s *Service) getClientAddr(req *http.Request) (netip.Addr, bool) {
