@@ -135,23 +135,27 @@ func (s *Service) allowCountry(ctx context.Context, addr netip.Addr) bool {
 			return false
 		}
 
-		s.log.LogAttrs(ctx, slog.LevelError, "error resolving country code", slog.String("addr", addr.String()))
+		s.log.LogAttrs(ctx, slog.LevelError, "unable to resolve country code", slog.String("addr", addr.String()), slog.String("error", err.Error()))
 		return false
 	}
 
 	countryCode = strings.ToLower(countryCode)
 
 	if s.countryWhitelisted(countryCode) {
-		s.log.LogAttrs(ctx, slog.LevelDebug, "country whitelisted", slog.String("country", countryCode))
+		s.logCountryDecision(ctx, countryCode, "whitelisted")
 		return true
 	}
 	if s.countryBlacklisted(countryCode) {
-		s.log.LogAttrs(ctx, slog.LevelDebug, "country blacklisted", slog.String("country", countryCode))
+		s.logCountryDecision(ctx, countryCode, "blacklisted")
 		return false
 	}
 
-	s.log.LogAttrs(ctx, slog.LevelDebug, "country not allowed", slog.String("country", countryCode))
+	s.logCountryDecision(ctx, countryCode, "disallowed")
 	return false
+}
+
+func (s *Service) logCountryDecision(ctx context.Context, countryCode, decision string) {
+	s.log.LogAttrs(ctx, slog.LevelInfo, "country decision", slog.String("country", countryCode), slog.String("decision", decision))
 }
 
 func (s *Service) countryWhitelisted(countryCode string) bool {

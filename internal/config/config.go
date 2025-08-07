@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	ListenAddr          string
+	LogLevel            string
 	CountryResolver     string
 	AllowPrivate        bool
 	CIDRWhitelist       []string
@@ -23,6 +24,9 @@ type Config struct {
 func (c Config) Validate() error {
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen-addr must be specified")
+	}
+	if c.LogLevel == "" {
+		return fmt.Errorf("log-level must be specified")
 	}
 	if c.CountryResolver == "" {
 		return fmt.Errorf("country-resolver must be specified")
@@ -39,6 +43,7 @@ func (c Config) Validate() error {
 func FromCLIContext(ctx *cli.Context) Config {
 	return Config{
 		ListenAddr:          ctx.String("listen-addr"),
+		LogLevel:            ctx.String("log-level"),
 		CountryResolver:     ctx.String("country-resolver"),
 		AllowPrivate:        ctx.Bool("allow-private"),
 		CIDRWhitelist:       ctx.StringSlice("cidr-whitelist"),

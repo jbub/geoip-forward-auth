@@ -37,6 +37,7 @@ services:
     restart: always
     environment:
       LISTEN_ADDR: ":8080"
+      LOG_LEVEL: "debug"
       COUNTRY_RESOLVER: "ip2location"
       IP2LOCATION_DATABASE: "/IP2LOCATION-LITE-DB1.IPV6.BIN"
     volumes:

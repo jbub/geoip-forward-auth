@@ -27,6 +27,12 @@ var Server = &cli.Command{
 			Value:   ":8080",
 		},
 		&cli.StringFlag{
+			Name:    "log-level",
+			Usage:   "Logging level (debug, info, warn, error).",
+			EnvVars: []string{"LOG_LEVEL"},
+			Value:   "info",
+		},
+		&cli.StringFlag{
 			Name:    "country-resolver",
 			Usage:   "Country resolver to use (ip2location or maxmind).",
 			EnvVars: []string{"COUNTRY_RESOLVER"},
@@ -84,8 +90,13 @@ func runServer(cliCtx *cli.Context) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	logLvl, err := parseLogLevel(cfg.LogLevel)
+	if err != nil {
+		return fmt.Errorf("unable to parse log level: %w", err)
+	}
+
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: logLvl,
 	}))
 
 	svc, err := geoip.NewService(log, cfg)
@@ -104,4 +115,19 @@ func runServer(cliCtx *cli.Context) error {
 
 	log.LogAttrs(context.Background(), slog.LevelInfo, "server listening", slog.String("addr", cfg.ListenAddr))
 	return grp.Run()
+}
+
+func parseLogLevel(level string) (slog.Level, error) {
+	switch level {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("invalid log level: %s", level)
+	}
 }
