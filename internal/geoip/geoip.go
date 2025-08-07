@@ -150,22 +150,16 @@ func (s *Service) allowCountry(ctx context.Context, addr netip.Addr) bool {
 		return false
 	}
 
-	s.log.LogAttrs(ctx, slog.LevelDebug, "country allowed", slog.String("country", countryCode))
-	return true
+	s.log.LogAttrs(ctx, slog.LevelDebug, "country not allowed", slog.String("country", countryCode))
+	return false
 }
 
 func (s *Service) countryWhitelisted(countryCode string) bool {
-	if len(s.countryWhitelist) == 0 {
-		return false
-	}
 	_, exists := s.countryWhitelist[countryCode]
 	return exists
 }
 
 func (s *Service) countryBlacklisted(countryCode string) bool {
-	if len(s.countryBlacklist) == 0 {
-		return false
-	}
 	_, exists := s.countryBlacklist[countryCode]
 	return exists
 }
