@@ -81,6 +81,23 @@ var Server = &cli.Command{
 			Usage:   "Path to the MaxMind database file.",
 			EnvVars: []string{"MAXMIND_DATABASE"},
 		},
+		&cli.StringFlag{
+			Name:    "client-ip-strategy",
+			Usage:   "Strategy to use for extracting client IP (remote-addr, depth, pool).",
+			EnvVars: []string{"CLIENT_IP_STRATEGY"},
+			Value:   "remote-addr",
+		},
+		&cli.IntFlag{
+			Name:    "client-ip-strategy-depth",
+			Usage:   "Depth for the depth strategy (number of hops to consider).",
+			EnvVars: []string{"CLIENT_IP_STRATEGY_DEPTH"},
+			Value:   1,
+		},
+		&cli.StringSliceFlag{
+			Name:    "client-ip-strategy-pool",
+			Usage:   "Pool of IPs to use for the pool strategy. First IP not in this pool will be used.",
+			EnvVars: []string{"CLIENT_IP_STRATEGY_POOL"},
+		},
 	},
 }
 
@@ -113,7 +130,11 @@ func runServer(cliCtx *cli.Context) error {
 		_ = srv.Shutdown(context.Background())
 	})
 
-	log.LogAttrs(context.Background(), slog.LevelInfo, "server listening", slog.String("addr", cfg.ListenAddr))
+	log.LogAttrs(context.Background(), slog.LevelInfo, "server listening",
+		slog.String("server_addr", cfg.ListenAddr),
+		slog.String("country_resolver", cfg.CountryResolver),
+		slog.String("client_ip_strategy", cfg.ClientIPStrategy),
+	)
 	return grp.Run()
 }
 

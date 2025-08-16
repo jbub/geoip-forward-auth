@@ -37,3 +37,6 @@ dist/
 
 # binary
 geoip-forward-auth
+
+# geoip database
+*.BIN

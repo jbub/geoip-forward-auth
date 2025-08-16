@@ -14,10 +14,15 @@ import (
 	"github.com/jbub/geoip-forward-auth/internal/geoip/geoiperr"
 	"github.com/jbub/geoip-forward-auth/internal/geoip/ip2location"
 	"github.com/jbub/geoip-forward-auth/internal/geoip/maxmind"
+	"github.com/jbub/geoip-forward-auth/internal/ipaddr"
 )
 
 type CountryResolver interface {
 	ResolveCountryCode(addr netip.Addr) (string, error)
+}
+
+type ClientIPStrategy interface {
+	GetClientIP(req *http.Request) string
 }
 
 func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
@@ -47,6 +52,11 @@ func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
 		return nil, fmt.Errorf("unable to create resolver: %w", err)
 	}
 
+	clientIPStrat, err := newClientIPStrategy(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create client IP strategy: %w", err)
+	}
+
 	return &Service{
 		log:              log,
 		allowPrivate:     cfg.AllowPrivate,
@@ -55,6 +65,7 @@ func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
 		allowCache:       cache,
 		countryWhitelist: countryWhitelist,
 		countryBlacklist: countryBlacklist,
+		clientIPStrat:    clientIPStrat,
 	}, nil
 }
 
@@ -69,6 +80,19 @@ func newResolver(cfg config.Config) (CountryResolver, error) {
 	}
 }
 
+func newClientIPStrategy(cfg config.Config) (ClientIPStrategy, error) {
+	switch cfg.ClientIPStrategy {
+	case "remote_addr":
+		return ipaddr.NewRemoteAddrStrategy(), nil
+	case "depth":
+		return ipaddr.NewDepthStrategy(cfg.ClientIPStrategyDepth), nil
+	case "pool":
+		return ipaddr.NewPoolStrategy(cfg.ClientIPStrategyPool), nil
+	default:
+		return nil, fmt.Errorf("unknown client IP strategy: %s", cfg.ClientIPStrategy)
+	}
+}
+
 type Service struct {
 	log              *slog.Logger
 	allowPrivate     bool
@@ -76,6 +100,7 @@ type Service struct {
 	countryWhitelist map[string]struct{}
 	countryBlacklist map[string]struct{}
 	resolver         CountryResolver
+	clientIPStrat    ClientIPStrategy
 	allowCache       *expirable.LRU[netip.Addr, bool]
 }
 
@@ -180,14 +205,12 @@ func (s *Service) getHostname(req *http.Request) string {
 }
 
 func (s *Service) getClientAddr(req *http.Request) (netip.Addr, bool) {
-	if header := req.Header.Get("X-Forwarded-For"); header != "" {
-		s.log.LogAttrs(req.Context(), slog.LevelDebug, "found X-Forwarded-For", slog.String("header", header))
-		ips := strings.Split(header, ",")
-		for _, ip := range ips {
-			if addr, err := netip.ParseAddr(strings.TrimSpace(ip)); err == nil {
-				return addr, true
-			}
-		}
+	ip := s.clientIPStrat.GetClientIP(req)
+	if ip == "" {
+		return netip.Addr{}, false
+	}
+	if addr, err := netip.ParseAddr(ip); err == nil {
+		return addr, true
 	}
 	return netip.Addr{}, false
 }
