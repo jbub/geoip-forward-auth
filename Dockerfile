@@ -1,4 +1,4 @@
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags "-extldflags '-static'" -tags netgo -o /bin/geoip-forward-auth
 
