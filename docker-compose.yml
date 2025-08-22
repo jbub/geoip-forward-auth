@@ -41,6 +41,8 @@ services:
       COUNTRY_RESOLVER: "ip2location"
       IP2LOCATION_DATABASE: "/IP2LOCATION-LITE-DB1.IPV6.BIN"
       CLIENT_IP_STRATEGY: "remote_addr"
+    ports:
+      - "8080:8080"
     volumes:
       - "./IP2LOCATION-LITE-DB1.IPV6.BIN:/IP2LOCATION-LITE-DB1.IPV6.BIN"
     depends_on:

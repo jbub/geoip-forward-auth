@@ -10,6 +10,8 @@ import (
 	"github.com/jbub/geoip-forward-auth/internal/config"
 	"github.com/jbub/geoip-forward-auth/internal/geoip"
 	"github.com/jbub/geoip-forward-auth/internal/server"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/oklog/run"
 	"github.com/urfave/cli/v2"
@@ -116,13 +118,16 @@ func runServer(cliCtx *cli.Context) error {
 		Level: logLvl,
 	}))
 
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+
 	svc, err := geoip.NewService(log, cfg)
 	if err != nil {
 		return fmt.Errorf("unable to create geoip service: %w", err)
 	}
+	reg.MustRegister(svc)
 
-	srv := server.New(cfg, svc)
-
+	srv := server.New(cfg, reg, svc)
 	var grp run.Group
 	grp.Add(func() error {
 		return srv.ListenAndServe()

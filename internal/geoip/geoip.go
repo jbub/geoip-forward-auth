@@ -15,6 +15,7 @@ import (
 	"github.com/jbub/geoip-forward-auth/internal/geoip/ip2location"
 	"github.com/jbub/geoip-forward-auth/internal/geoip/maxmind"
 	"github.com/jbub/geoip-forward-auth/internal/ipaddr"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type CountryResolver interface {
@@ -26,8 +27,6 @@ type ClientIPStrategy interface {
 }
 
 func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
-	cache := expirable.NewLRU[netip.Addr, bool](cfg.CacheSize, nil, cfg.CacheTTL)
-
 	var ipWhitelist []netip.Prefix
 	for _, cidr := range cfg.CIDRWhitelist {
 		prefix, err := netip.ParsePrefix(cidr)
@@ -62,10 +61,11 @@ func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
 		allowPrivate:     cfg.AllowPrivate,
 		ipWhitelist:      ipWhitelist,
 		resolver:         resolver,
-		allowCache:       cache,
+		allowCache:       expirable.NewLRU[netip.Addr, allowEntry](cfg.CacheSize, nil, cfg.CacheTTL),
 		countryWhitelist: countryWhitelist,
 		countryBlacklist: countryBlacklist,
 		clientIPStrat:    clientIPStrat,
+		metrics:          newMetrics(),
 	}, nil
 }
 
@@ -101,7 +101,14 @@ type Service struct {
 	countryBlacklist map[string]struct{}
 	resolver         CountryResolver
 	clientIPStrat    ClientIPStrategy
-	allowCache       *expirable.LRU[netip.Addr, bool]
+	allowCache       *expirable.LRU[netip.Addr, allowEntry]
+	metrics          *metrics
+}
+
+type allowEntry struct {
+	allowed     bool
+	countryCode string
+	decision    string
 }
 
 func (s *Service) Allow(req *http.Request) bool {
@@ -112,7 +119,6 @@ func (s *Service) Allow(req *http.Request) bool {
 	}
 
 	log := s.log.With(slog.String("host", host))
-
 	addr, ok := s.getClientAddr(req)
 	if !ok {
 		log.LogAttrs(req.Context(), slog.LevelDebug, "no client address found in request")
@@ -120,25 +126,51 @@ func (s *Service) Allow(req *http.Request) bool {
 	}
 
 	log = log.With(slog.String("addr", addr.String()))
-
-	if allowed, cached := s.allowCache.Get(addr); cached {
-		log.LogAttrs(req.Context(), slog.LevelDebug, "cache hit", slog.Bool("allowed", allowed))
-		return allowed
+	if entry, cached := s.getCachedEntry(addr); cached {
+		log.LogAttrs(req.Context(), slog.LevelDebug, "cache hit", slog.Bool("allowed", entry.allowed))
+		return entry.allowed
 	}
 
-	allowed := s.allow(req.Context(), log, addr)
-	s.allowCache.Add(addr, allowed)
-	return allowed
+	entry := s.allow(req.Context(), log, addr)
+	s.allowCache.Add(addr, entry)
+	return entry.allowed
 }
 
-func (s *Service) allow(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
+func (s *Service) Describe(descs chan<- *prometheus.Desc) {
+	s.metrics.Describe(descs)
+}
+
+func (s *Service) Collect(metrics chan<- prometheus.Metric) {
+	s.metrics.Collect(metrics)
+}
+
+func (s *Service) getCachedEntry(addr netip.Addr) (allowEntry, bool) {
+	if entry, cached := s.allowCache.Get(addr); cached {
+		s.metrics.recordCacheHit()
+		return entry, true
+	}
+	s.metrics.recordCacheMiss()
+	return allowEntry{}, false
+}
+
+func (s *Service) allow(ctx context.Context, log *slog.Logger, addr netip.Addr) allowEntry {
 	if s.addrWhitelisted(ctx, log, addr) {
-		return true
+		return allowEntry{allowed: true, decision: "whitelisted"}
 	}
 	if s.allowPrivateAddr(ctx, log, addr) {
-		return true
+		return allowEntry{allowed: true, decision: "private_whitelisted"}
 	}
-	return s.allowCountry(ctx, log, addr)
+
+	entry := s.allowCountry(ctx, log, addr)
+	if entry.countryCode != "" {
+		s.recordCountryDecision(ctx, log, entry)
+	}
+	return entry
+}
+
+func (s *Service) recordCountryDecision(ctx context.Context, log *slog.Logger, entry allowEntry) {
+	s.metrics.recordCountryDecision(entry.countryCode, entry.decision)
+	log.LogAttrs(ctx, slog.LevelInfo, "country decision", slog.String("country", entry.countryCode), slog.String("decision", entry.decision))
 }
 
 func (s *Service) allowPrivateAddr(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
@@ -159,35 +191,26 @@ func (s *Service) addrWhitelisted(ctx context.Context, log *slog.Logger, addr ne
 	return false
 }
 
-func (s *Service) allowCountry(ctx context.Context, log *slog.Logger, addr netip.Addr) bool {
+func (s *Service) allowCountry(ctx context.Context, log *slog.Logger, addr netip.Addr) allowEntry {
 	countryCode, err := s.resolver.ResolveCountryCode(addr)
 	if err != nil {
 		if errors.Is(err, geoiperr.ErrCountryCodeNotFound) {
 			log.LogAttrs(ctx, slog.LevelDebug, "country code not found")
-			return false
+			return allowEntry{allowed: false}
 		}
 
 		log.LogAttrs(ctx, slog.LevelError, "unable to resolve country code", slog.String("error", err.Error()))
-		return false
+		return allowEntry{allowed: false}
 	}
 
 	countryCode = strings.ToLower(countryCode)
-
 	if s.countryWhitelisted(countryCode) {
-		s.logCountryDecision(ctx, log, countryCode, "whitelisted")
-		return true
+		return allowEntry{allowed: true, countryCode: countryCode, decision: "whitelisted"}
 	}
 	if s.countryBlacklisted(countryCode) {
-		s.logCountryDecision(ctx, log, countryCode, "blacklisted")
-		return false
+		return allowEntry{allowed: false, countryCode: countryCode, decision: "blacklisted"}
 	}
-
-	s.logCountryDecision(ctx, log, countryCode, "disallowed")
-	return false
-}
-
-func (s *Service) logCountryDecision(ctx context.Context, log *slog.Logger, countryCode, decision string) {
-	log.LogAttrs(ctx, slog.LevelInfo, "country decision", slog.String("country", countryCode), slog.String("decision", decision))
+	return allowEntry{allowed: false, countryCode: countryCode, decision: "disallowed"}
 }
 
 func (s *Service) countryWhitelisted(countryCode string) bool {
@@ -213,4 +236,64 @@ func (s *Service) getClientAddr(req *http.Request) (netip.Addr, bool) {
 		return addr, true
 	}
 	return netip.Addr{}, false
+}
+
+func newMetrics() *metrics {
+	return &metrics{
+		countryDecisionCounter: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "geoip",
+				Name:      "country_decisions_total",
+				Help:      "Total number of country decisions made, labeled by country code and decision.",
+			},
+			[]string{"country_code", "decision"},
+		),
+		cacheHitCounter: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "geoip",
+				Name:      "cache_hits_total",
+				Help:      "Total number of cache hits.",
+			},
+		),
+		cacheMissCounter: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "geoip",
+				Name:      "cache_misses_total",
+				Help:      "Total number of cache misses.",
+			},
+		),
+	}
+}
+
+type metrics struct {
+	countryDecisionCounter *prometheus.CounterVec
+	cacheHitCounter        prometheus.Counter
+	cacheMissCounter       prometheus.Counter
+}
+
+func (m *metrics) recordCountryDecision(countryCode, decision string) {
+	m.countryDecisionCounter.With(prometheus.Labels{
+		"country_code": countryCode,
+		"decision":     decision,
+	}).Inc()
+}
+
+func (m *metrics) recordCacheHit() {
+	m.cacheHitCounter.Inc()
+}
+
+func (m *metrics) recordCacheMiss() {
+	m.cacheMissCounter.Inc()
+}
+
+func (m *metrics) Describe(descs chan<- *prometheus.Desc) {
+	m.countryDecisionCounter.Describe(descs)
+	m.cacheHitCounter.Describe(descs)
+	m.cacheMissCounter.Describe(descs)
+}
+
+func (m *metrics) Collect(metrics chan<- prometheus.Metric) {
+	m.countryDecisionCounter.Collect(metrics)
+	m.cacheHitCounter.Collect(metrics)
+	m.cacheMissCounter.Collect(metrics)
 }

@@ -7,16 +7,16 @@ import (
 
 	"github.com/jbub/geoip-forward-auth/internal/config"
 	"github.com/jbub/geoip-forward-auth/internal/geoip"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func New(cfg config.Config, svc *geoip.Service) *Server {
+func New(cfg config.Config, reg prometheus.Gatherer, svc *geoip.Service) *Server {
 	mux := http.NewServeMux()
-
 	mux.Handle("GET /health", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	}))
-
 	mux.Handle("GET /auth", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		allow := svc.Allow(req)
 		if !allow {
@@ -24,6 +24,9 @@ func New(cfg config.Config, svc *geoip.Service) *Server {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+	}))
+	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+		EnableOpenMetrics: true,
 	}))
 
 	return &Server{
