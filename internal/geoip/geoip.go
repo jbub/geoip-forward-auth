@@ -29,6 +29,10 @@ type ClientIPStrategy interface {
 func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
 	var ipWhitelist []netip.Prefix
 	for _, cidr := range cfg.CIDRWhitelist {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
 		prefix, err := netip.ParsePrefix(cidr)
 		if err != nil {
 			return nil, err
@@ -38,11 +42,19 @@ func NewService(log *slog.Logger, cfg config.Config) (*Service, error) {
 
 	countryWhitelist := make(map[string]struct{}, len(cfg.CountryWhitelist))
 	for _, cnt := range cfg.CountryWhitelist {
+		cnt = strings.ToLower(strings.TrimSpace(cnt))
+		if cnt == "" {
+			continue
+		}
 		countryWhitelist[cnt] = struct{}{}
 	}
 
 	countryBlacklist := make(map[string]struct{}, len(cfg.CountryBlacklist))
 	for _, cnt := range cfg.CountryBlacklist {
+		cnt = strings.ToLower(strings.TrimSpace(cnt))
+		if cnt == "" {
+			continue
+		}
 		countryBlacklist[cnt] = struct{}{}
 	}
 
@@ -82,7 +94,7 @@ func newResolver(cfg config.Config) (CountryResolver, error) {
 
 func newClientIPStrategy(cfg config.Config) (ClientIPStrategy, error) {
 	switch cfg.ClientIPStrategy {
-	case "remote_addr":
+	case "remote-addr":
 		return ipaddr.NewRemoteAddrStrategy(), nil
 	case "depth":
 		return ipaddr.NewDepthStrategy(cfg.ClientIPStrategyDepth), nil

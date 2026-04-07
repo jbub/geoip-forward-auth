@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.5
+    image: traefik:v3.6
     command:
       - "--api.insecure=true"
       - "--providers.docker=true"
@@ -40,7 +40,7 @@ services:
       LOG_LEVEL: "debug"
       COUNTRY_RESOLVER: "ip2location"
       IP2LOCATION_DATABASE: "/IP2LOCATION-LITE-DB1.IPV6.BIN"
-      CLIENT_IP_STRATEGY: "remote_addr"
+      CLIENT_IP_STRATEGY: "remote-addr"
     ports:
       - "8080:8080"
     volumes:

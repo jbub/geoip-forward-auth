@@ -31,11 +31,12 @@ func New(cfg config.Config, reg prometheus.Gatherer, svc *geoip.Service) *Server
 
 	return &Server{
 		srv: &http.Server{
-			Addr:         cfg.ListenAddr,
-			Handler:      mux,
-			ReadTimeout:  time.Second * 5,
-			WriteTimeout: time.Second * 5,
-			IdleTimeout:  time.Second * 5,
+			Addr:              cfg.ListenAddr,
+			Handler:           mux,
+			ReadTimeout:       time.Second * 5,
+			ReadHeaderTimeout: time.Second * 5,
+			WriteTimeout:      time.Second * 5,
+			IdleTimeout:       time.Second * 5,
 		},
 	}
 }
