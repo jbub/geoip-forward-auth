@@ -42,6 +42,7 @@ snapshot:
   version_template: "{{ .Commit }}"
 dockers_v2:
   - dockerfile: .goreleaser/Dockerfile
+    sbom: false
     images:
       - "jbub/geoip-forward-auth"
     tags:
