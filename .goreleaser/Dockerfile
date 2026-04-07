@@ -6,7 +6,8 @@ RUN addgroup -S geoip-forward-auth \
 
 RUN apk --no-cache add tzdata ca-certificates
 
-COPY geoip-forward-auth /bin
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/geoip-forward-auth /bin
 
 USER geoip-forward-auth
 

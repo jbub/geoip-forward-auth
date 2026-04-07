@@ -40,36 +40,21 @@ archives:
       - README.md
 snapshot:
   version_template: "{{ .Commit }}"
-dockers:
-  - image_templates:
-      - "jbub/geoip-forward-auth:{{ .Tag }}"
-      - "jbub/geoip-forward-auth:latest"
-    dockerfile: .goreleaser/Dockerfile
-    use: buildx
-    build_flag_templates:
+dockers_v2:
+  - dockerfile: .goreleaser/Dockerfile
+    images:
+      - "jbub/geoip-forward-auth"
+    tags:
+      - "{{ .Tag }}"
+      - "latest"
+    labels:
+      org.opencontainers.image.created: "{{.Date}}"
+      org.opencontainers.image.name: "{{.ProjectName}}"
+      org.opencontainers.image.revision: "{{.FullCommit}}"
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.source: "{{.GitURL}}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    flags:
       - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-      - "--platform=linux/amd64"
-  - image_templates:
-      - "jbub/geoip-forward-auth:{{ .Tag }}-arm64"
-      - "jbub/geoip-forward-auth:latest-arm64"
-    dockerfile: .goreleaser/Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-      - "--platform=linux/arm64"
-    goarch: arm64
-docker_manifests:
-  - name_template: 'jbub/geoip-forward-auth:{{ .Tag }}'
-    image_templates:
-      - 'jbub/geoip-forward-auth:{{ .Tag }}'
-      - 'jbub/geoip-forward-auth:{{ .Tag }}-arm64'
